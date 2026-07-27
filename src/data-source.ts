@@ -2,12 +2,7 @@ import { DataSource } from 'typeorm';
 import { Log } from './logs/entities/log.entity';
 import { User } from './user/entities/user.entity';
 import { Division } from './config/entities/division.entity';
-import {
-  GenesysConversation,
-  GenesysRecording,
-  GenesysConversationUser,
-  GenesysConversationWrapupCode,
-} from './audio/entities/genesys-audio.entity';
+import { Gravacao } from './audio/entities/gravacao.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -16,8 +11,8 @@ export const AppDataSource = new DataSource({
   database: process.env.DB_DATABASE!,
   username: process.env.DB_USERNAME!,
   password: process.env.DB_PASSWORD!,
-  schema: process.env.DB_SCHEMA || 'searchaudio',
-  entities: [Log, User, Division, GenesysConversation, GenesysRecording, GenesysConversationUser, GenesysConversationWrapupCode],
+  schema: process.env.DB_SCHEMA || 'searchvideo',
+  entities: [Log, User, Division, Gravacao],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,
   logging: process.env.NODE_ENV === 'development',

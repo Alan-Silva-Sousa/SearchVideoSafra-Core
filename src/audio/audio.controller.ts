@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Body, Param, Query, Res, UseGuards } from '@nestjs/common';
-import { AudioService } from './audio.service';
+import { AudioService } from './gravacao.service';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../user/jwt-auth.guard';
 import { FilesystemService } from '../filesystem.service';

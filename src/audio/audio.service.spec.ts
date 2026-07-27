@@ -1,12 +1,19 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { AudioService } from './audio.service';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { AudioService } from './gravacao.service';
+import { Gravacao } from './entities/gravacao.entity';
+import { FilesystemService } from '../filesystem.service';
 
 describe('AudioService', () => {
   let service: AudioService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [AudioService],
+      providers: [
+        AudioService,
+        { provide: getRepositoryToken(Gravacao), useValue: {} },
+        { provide: FilesystemService, useValue: {} },
+      ],
     }).compile();
 
     service = module.get<AudioService>(AudioService);

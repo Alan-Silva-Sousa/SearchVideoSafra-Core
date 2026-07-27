@@ -3,12 +3,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
-import {
-  GenesysConversation,
-  GenesysRecording,
-  GenesysConversationUser,
-  GenesysConversationWrapupCode,
-} from './audio/entities/genesys-audio.entity';
+import { Gravacao } from './audio/entities/gravacao.entity';
 import { AudioModule } from './audio/audio.module';
 import { AuthModule } from './user/auth.module';
 import { User } from './user/entities/user.entity';
@@ -29,15 +24,12 @@ import { Division } from './config/entities/division.entity';
     database: process.env.DB_DATABASE,
     username: process.env.DB_USERNAME,
     password: process.env.DB_PASSWORD,
-    schema: process.env.DB_SCHEMA || 'searchaudio',
+    schema: process.env.DB_SCHEMA || 'searchvideo',
     entities: [
       User,
       Log,
       Division,
-      GenesysConversation,
-      GenesysRecording,
-      GenesysConversationUser,
-      GenesysConversationWrapupCode,
+      Gravacao,
     ],
     synchronize: false,
     logging: process.env.NODE_ENV === 'development',

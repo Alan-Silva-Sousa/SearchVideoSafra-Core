@@ -1,24 +1,14 @@
 import { Module } from '@nestjs/common';
-import { AudioService } from './audio.service';
+import { AudioService } from './gravacao.service';
 import { AudioController } from './audio.controller';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import {
-  GenesysConversation,
-  GenesysRecording,
-  GenesysConversationUser,
-  GenesysConversationWrapupCode,
-} from './entities/genesys-audio.entity';
+import { Gravacao } from './entities/gravacao.entity';
 import { FilesystemService } from '../filesystem.service';
 import { AuthModule } from '../user/auth.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      GenesysConversation,
-      GenesysRecording,
-      GenesysConversationUser,
-      GenesysConversationWrapupCode,
-    ]),
+    TypeOrmModule.forFeature([Gravacao]),
     AuthModule,
   ],
   controllers: [AudioController],
