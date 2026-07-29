@@ -19,36 +19,63 @@ export class UserService {
   ) {}
 
   async findByEmail(email: string): Promise<User | null> {
-    return this.userRepository.findOne({ where: { email } });
-  }
-
-  async findByExternalId(externalId: string, authProvider: string): Promise<User | null> {
     return this.userRepository.findOne({
-      where: { externalId, authProvider }
+      where: [
+        { email, ativo: true },
+        { login: email, ativo: true },
+      ],
     });
   }
 
-  async find(id: number): Promise<User | null> {
+  async findByExternalId(
+    externalId: string,
+    authProvider: string,
+  ): Promise<User | null> {
+    return this.userRepository.findOne({
+      where: { externalId, authProvider },
+    });
+  }
+
+  async find(id: string): Promise<User | null> {
     return this.userRepository.findOne({ where: { id } });
   }
 
-  async delete(id: number): Promise<DeleteResult | null> {
+  async delete(id: string): Promise<DeleteResult | null> {
     let deleted = await this.userRepository.delete(id);
     return deleted;
   }
 
   async findAll(): Promise<User[] | null> {
     return await this.userRepository.find({
-      select: ["id", "email", "lastLogin", "createdAt", "authProvider", "displayName"]
+      select: [
+        'id',
+        'login',
+        'email',
+        'lastLogin',
+        'createdAt',
+        'authProvider',
+        'displayName',
+        'perfil',
+        'ativo',
+      ],
     });
   }
 
-  async createUser(email: string, password: string): Promise<User> {
+  async createUser(
+    email: string,
+    password: string,
+    perfil = 'usuario',
+    displayName = email,
+  ): Promise<User> {
     const passwordHash = await bcrypt.hash(password, 10);
     const user = this.userRepository.create({
       email,
+      login: email,
+      displayName,
       passwordHash,
       authProvider: 'local',
+      perfil,
+      ativo: true,
       createdAt: new Date(),
       lastLogin: new Date(),
     });
@@ -57,7 +84,11 @@ export class UserService {
 
   async validateUser(email: string, password: string): Promise<User | null> {
     const user = await this.findByEmail(email);
-    if (user && user.passwordHash && (await bcrypt.compare(password, user.passwordHash))) {
+    if (
+      user &&
+      user.passwordHash &&
+      (await bcrypt.compare(password, user.passwordHash))
+    ) {
       return user;
     }
     return null;
@@ -66,7 +97,7 @@ export class UserService {
   async updateUser(email: string, password: string): Promise<User> {
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await this.findByEmail(email);
-    if(!user){
+    if (!user) {
       throw new UnauthorizedException('Senha Inválida');
     }
     user.passwordHash = passwordHash;
@@ -75,7 +106,7 @@ export class UserService {
 
   async updateUserLastLogin(email: string): Promise<User> {
     const user = await this.findByEmail(email);
-    if(!user){
+    if (!user) {
       throw new UnauthorizedException('Inválido');
     }
     user.lastLogin = new Date();
@@ -106,7 +137,8 @@ export class UserService {
       if (existingByEmail.authProvider === 'local') {
         existingByEmail.externalId = data.externalId;
         existingByEmail.authProvider = data.authProvider;
-        existingByEmail.displayName = data.displayName || existingByEmail.displayName;
+        existingByEmail.displayName =
+          data.displayName || existingByEmail.displayName;
         existingByEmail.lastLogin = new Date();
         return this.userRepository.save(existingByEmail);
       }
@@ -117,9 +149,12 @@ export class UserService {
     // Create new user
     const newUser = this.userRepository.create({
       email: data.email,
+      login: data.email,
       externalId: data.externalId,
       authProvider: data.authProvider,
       displayName: data.displayName,
+      perfil: 'usuario',
+      ativo: true,
       passwordHash: undefined, // External users don't have local password
       createdAt: new Date(),
       lastLogin: new Date(),

@@ -1,28 +1,37 @@
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
-@Entity('users')
+@Entity({ name: 'usuarios', schema: 'searchvideo' })
 export class User {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column({ unique: true })
+  @Column({ unique: true, nullable: true })
   email: string;
 
-  @Column({ nullable: true })
+  @Column({ name: 'senha_hash', type: 'text', nullable: true })
   passwordHash: string;
 
-  @Column({ nullable: true })
+  @Column({ name: 'external_id', nullable: true })
   externalId: string;
 
-  @Column({ default: 'local' })
+  @Column({ name: 'auth_provider', default: 'local' })
   authProvider: string;
 
-  @Column({ nullable: true })
+  @Column({ name: 'nome' })
   displayName: string;
 
-  @Column()
+  @Column({ unique: true })
+  login: string;
+
+  @Column({ default: 'usuario' })
+  perfil: string;
+
+  @Column({ default: true })
+  ativo: boolean;
+
+  @Column({ name: 'criado_em', type: 'timestamptz' })
   createdAt: Date;
 
-  @Column()
+  @Column({ name: 'ultimo_login', type: 'timestamptz', nullable: true })
   lastLogin: Date;
 }

@@ -1,58 +1,67 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { UserService } from './user.service';
 import { JwtService } from '@nestjs/jwt';
-import { AuthStrategyFactory, AuthMethodType } from './strategies';
+import { createHash, randomBytes } from 'crypto';
+import { GenesysStrategy } from './strategies';
 
 export interface AuthConfig {
-  authMethod: AuthMethodType;
-  genesysAuthUrl?: string;
+  authMethod: 'genesys';
+  genesysAuthUrl: string;
 }
 
 @Injectable()
 export class AuthService {
+  private readonly pkceVerifiers = new Map<
+    string,
+    { codeVerifier: string; expiresAt: number }
+  >();
+  private readonly oauthStateTtlMs = 5 * 60 * 1000;
+
   constructor(
-    private userService: UserService,
     private jwtService: JwtService,
-    private strategyFactory: AuthStrategyFactory,
+    private genesysStrategy: GenesysStrategy,
   ) {}
 
-  /**
-   * Get authentication configuration for frontend
-   */
   getAuthConfig(): AuthConfig {
-    const authMethod = this.strategyFactory.getAuthMethod();
-    const config: AuthConfig = { authMethod };
+    this.deleteExpiredPkceVerifiers();
 
-    // Include Genesys OAuth URL when using Genesys auth
-    if (authMethod === 'genesys') {
-      config.genesysAuthUrl = this.strategyFactory.getGenesysStrategy().getAuthorizationUrl();
-    }
+    const nonce = randomBytes(32).toString('base64url');
+    const codeVerifier = randomBytes(32).toString('base64url');
+    const codeChallenge = createHash('sha256')
+      .update(codeVerifier)
+      .digest('base64url');
 
-    return config;
+    this.pkceVerifiers.set(nonce, {
+      codeVerifier,
+      expiresAt: Date.now() + this.oauthStateTtlMs,
+    });
+
+    const state = this.jwtService.sign(
+      { purpose: 'genesys-oauth', nonce },
+      { expiresIn: '5m' },
+    );
+
+    return {
+      authMethod: 'genesys',
+      genesysAuthUrl: this.genesysStrategy.getAuthorizationUrl(
+        state,
+        codeChallenge,
+      ),
+    };
   }
 
-  /**
-   * Login with username/email and password (for local and AD auth)
-   */
-  async login(username: string, password: string) {
-    const authMethod = this.strategyFactory.getAuthMethod();
-
-    // For Genesys auth, username/password login is not allowed
-    if (authMethod === 'genesys') {
-      throw new UnauthorizedException('Use o login via Genesys Cloud');
-    }
-
-    const strategy = this.strategyFactory.getStrategy();
-    const result = await strategy.authenticate({ username, password });
+  async handleGenesysCallback(code: string, state: string) {
+    const codeVerifier = this.consumePkceVerifier(state);
+    const result = await this.genesysStrategy.authenticate({
+      code,
+      codeVerifier,
+    });
 
     if (!result.success || !result.user) {
-      throw new UnauthorizedException(result.error || 'Credenciais inválidas');
+      throw new UnauthorizedException(
+        result.error || 'Erro ao autenticar com Genesys',
+      );
     }
 
-    // Update last login
-    await this.userService.updateUserLastLogin(result.user.email);
-
-    // Generate JWT
     const payload = {
       sub: result.user.id,
       email: result.user.email,
@@ -67,75 +76,37 @@ export class AuthService {
     };
   }
 
-  /**
-   * Handle Genesys OAuth callback
-   */
-  async handleGenesysCallback(code: string) {
-    const authMethod = this.strategyFactory.getAuthMethod();
+  private consumePkceVerifier(state: string): string {
+    this.deleteExpiredPkceVerifiers();
 
-    if (authMethod !== 'genesys') {
-      throw new UnauthorizedException('Autenticação Genesys não está habilitada');
+    try {
+      const payload = this.jwtService.verify<{
+        purpose?: string;
+        nonce?: string;
+      }>(state);
+      if (payload.purpose !== 'genesys-oauth' || !payload.nonce) {
+        throw new Error('Invalid OAuth state purpose');
+      }
+
+      const entry = this.pkceVerifiers.get(payload.nonce);
+      this.pkceVerifiers.delete(payload.nonce);
+
+      if (!entry || entry.expiresAt <= Date.now()) {
+        throw new Error('Missing, expired, or replayed OAuth state');
+      }
+
+      return entry.codeVerifier;
+    } catch {
+      throw new UnauthorizedException('Estado OAuth inválido ou expirado');
     }
-
-    const strategy = this.strategyFactory.getGenesysStrategy();
-    const result = await strategy.authenticate({ code });
-
-    if (!result.success || !result.user) {
-      throw new UnauthorizedException(result.error || 'Erro ao autenticar com Genesys');
-    }
-
-    // Generate JWT
-    const payload = {
-      sub: result.user.id,
-      email: result.user.email,
-      displayName: result.user.displayName,
-      authProvider: result.user.authProvider,
-    };
-
-    return {
-      token: this.jwtService.sign(payload),
-      email: result.user.email,
-      displayName: result.user.displayName,
-    };
   }
 
-  /**
-   * Get Genesys authorization URL
-   */
-  getGenesysAuthUrl(): string {
-    return this.strategyFactory.getGenesysStrategy().getAuthorizationUrl();
-  }
-
-  async register(email: string, password: string) {
-    const authMethod = this.strategyFactory.getAuthMethod();
-
-    // Registration is only allowed for local auth
-    if (authMethod !== 'local') {
-      throw new UnauthorizedException('Registro não permitido. Use autenticação externa.');
+  private deleteExpiredPkceVerifiers(): void {
+    const now = Date.now();
+    for (const [nonce, entry] of this.pkceVerifiers) {
+      if (entry.expiresAt <= now) {
+        this.pkceVerifiers.delete(nonce);
+      }
     }
-
-    const existingUser = await this.userService.findByEmail(email);
-    if (existingUser) {
-      throw new UnauthorizedException('Email já cadastrado');
-    }
-    const user = await this.userService.createUser(email, password);
-    return { id: user.id, email: user.email };
-  }
-
-  async findAll() {
-    const users = await this.userService.findAll();
-    if (!users) {
-      throw new UnauthorizedException('Erro ao buscar usuários');
-    }
-    return { users: users };
-  }
-
-  async deleteUser(id: number) {
-    const existingUser = await this.userService.find(id);
-    if (!existingUser) {
-      throw new UnauthorizedException('Usuário não existe');
-    }
-    const user = await this.userService.delete(id);
-    return {id};
   }
 }

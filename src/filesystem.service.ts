@@ -7,21 +7,29 @@ import { createDecipheriv } from 'crypto';
 @Injectable()
 export class FilesystemService {
   private readonly basePath: string;
-  private readonly decryptionKey: Buffer;
+  private readonly decryptionKey: Buffer | null;
 
   constructor() {
     // Base path onde os arquivos estão armazenados
     this.basePath = process.env.RECORDINGS_BASE_PATH || '/recordings';
 
     // Carregar chave de descriptografia
-    const keyPath = process.env.RECORDINGS_KEY_FILE || '/run/secrets/recordings.key';
+    const keyPath =
+      process.env.RECORDINGS_KEY_FILE || '/run/secrets/recordings.key';
     try {
       const keyHex = readFileSync(keyPath, 'utf8').trim();
       this.decryptionKey = Buffer.from(keyHex, 'base64');
-      console.log(`[FilesystemService] Chave de descriptografia carregada de: ${keyPath}`);
+      console.log(
+        `[FilesystemService] Chave de descriptografia carregada de: ${keyPath}`,
+      );
     } catch (error) {
-      console.error(`[FilesystemService] ERRO: Não foi possível carregar a chave de descriptografia de ${keyPath}`);
-      throw error;
+      console.warn(
+        `[FilesystemService] Chave legada não encontrada em ${keyPath}`,
+      );
+      this.decryptionKey = null;
+      console.warn(
+        '[FilesystemService] O login e as consultas continuarão disponíveis; o streaming legado ficará desabilitado.',
+      );
     }
   }
 
@@ -61,6 +69,12 @@ export class FilesystemService {
    * - Restante: Dados criptografados (sem auth tag)
    */
   private createDecryptStream(filePath: string): { stream: any; size: number } {
+    if (!this.decryptionKey) {
+      throw new Error(
+        'Streaming legado indisponível: RECORDINGS_KEY_FILE não foi configurado.',
+      );
+    }
+
     const { Readable } = require('stream');
 
     // Ler arquivo inteiro
@@ -106,7 +120,7 @@ export class FilesystemService {
     directory: string,
     fileName: string,
     res: Response,
-    disposition: 'inline' | 'attachment' = 'inline'
+    disposition: 'inline' | 'attachment' = 'inline',
   ) {
     const filePath = this.buildFilePath(directory, fileName);
 
@@ -120,18 +134,18 @@ export class FilesystemService {
     // Detectar MIME type baseado na extensão
     const ext = fileName.split('.').pop()?.toLowerCase();
     const mimeTypes: Record<string, string> = {
-      'ogg': 'audio/ogg',
-      'opus': 'audio/opus',
-      'mp3': 'audio/mpeg',
-      'wav': 'audio/wav',
-      'm4a': 'audio/mp4',
+      ogg: 'audio/ogg',
+      opus: 'audio/opus',
+      mp3: 'audio/mpeg',
+      wav: 'audio/wav',
+      m4a: 'audio/mp4',
     };
     const contentType = mimeTypes[ext || ''] || 'audio/ogg';
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Length', size);
     res.setHeader(
       'Content-Disposition',
-      `${disposition}; filename="${fileName}"`
+      `${disposition}; filename="${fileName}"`,
     );
 
     // Pipe stream descriptografado para resposta
@@ -139,7 +153,10 @@ export class FilesystemService {
 
     // Tratar erros no stream
     stream.on('error', (error) => {
-      console.error(`[FilesystemService] Erro ao descriptografar ${filePath}:`, error);
+      console.error(
+        `[FilesystemService] Erro ao descriptografar ${filePath}:`,
+        error,
+      );
       if (!res.headersSent) {
         res.status(500).json({ error: 'Failed to decrypt audio file' });
       }

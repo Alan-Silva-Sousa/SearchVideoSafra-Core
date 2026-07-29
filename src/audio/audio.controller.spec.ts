@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AudioController } from './audio.controller';
-import { AudioService } from './gravacao.service';
-import { FilesystemService } from '../filesystem.service';
+import { AudioService } from './audio.service';
+import { S3Service } from '../storage/s3.service';
 import { JwtAuthGuard } from '../user/jwt-auth.guard';
 
 describe('AudioController', () => {
@@ -12,7 +12,7 @@ describe('AudioController', () => {
       controllers: [AudioController],
       providers: [
         { provide: AudioService, useValue: {} },
-        { provide: FilesystemService, useValue: {} },
+        { provide: S3Service, useValue: {} },
       ],
     })
       .overrideGuard(JwtAuthGuard)

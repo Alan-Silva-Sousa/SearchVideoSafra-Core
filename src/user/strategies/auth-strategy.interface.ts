@@ -3,9 +3,10 @@ import { User } from '../entities/user.entity';
 export type AuthMethodType = 'local' | 'ad' | 'genesys';
 
 export interface AuthCredentials {
-  username?: string;  // For local (email) and AD (sAMAccountName)
-  password?: string;  // For local and AD
-  code?: string;      // OAuth authorization code for Genesys
+  username?: string; // For local (email) and AD (sAMAccountName)
+  password?: string; // For local and AD
+  code?: string; // OAuth authorization code for Genesys
+  codeVerifier?: string; // PKCE verifier for Genesys
 }
 
 export interface AuthResult {

@@ -1,4 +1,9 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 
 @Injectable()
@@ -9,26 +14,29 @@ export class JwtAuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const authHeader = request.headers['authorization'];
 
-    // Extrair token do header Authorization ou do query parameter (fallback para <audio> tag)
-    let token: string | undefined;
-
-    if (authHeader) {
-      const [, headerToken] = authHeader.split(' ');
-      token = headerToken;
-    } else if (request.query?.token) {
-      token = request.query.token;
-    }
-
-    if (!token) {
+    if (typeof authHeader !== 'string') {
       throw new UnauthorizedException('Token não fornecido');
     }
 
+    const [scheme, token, ...extra] = authHeader.trim().split(/\s+/);
+
+    if (scheme !== 'Bearer' || !token || extra.length > 0) {
+      throw new UnauthorizedException('Token inválido');
+    }
+
+    let payload;
+
     try {
-      const payload = this.jwtService.verify(token);
-      request.user = payload;
-      return true;
+      payload = this.jwtService.verify(token);
     } catch {
       throw new UnauthorizedException('Token inválido ou expirado');
     }
+
+    if (payload.authProvider !== 'genesys') {
+      throw new UnauthorizedException('Provedor não autorizado');
+    }
+
+    request.user = payload;
+    return true;
   }
 }
