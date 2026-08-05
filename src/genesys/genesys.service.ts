@@ -41,7 +41,7 @@ export class GenesysService implements OnModuleInit {
       // Importar dinamicamente o SDK do Genesys
       this.platformClient = require('purecloud-platform-client-v2');
       const client = this.platformClient.ApiClient.instance;
-      client.setEnvironment(this.platformClient.PureCloudRegionHosts.sa_east_1);
+      client.setEnvironment(process.env.GENESYS_REGION || 'sae1.pure.cloud');
 
       await client.loginClientCredentialsGrant(clientId, clientSecret);
       this.usersApi = new this.platformClient.UsersApi();

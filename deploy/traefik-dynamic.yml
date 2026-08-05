@@ -1,0 +1,109 @@
+http:
+  routers:
+    root:
+      entryPoints:
+        - web
+      rule: Host(`searchaudio-safra.s4me.app`) && Path(`/`)
+      priority: 300
+      middlewares:
+        - default-to-video
+      service: video-frontend
+
+    canonical-app-paths:
+      entryPoints:
+        - web
+      rule: Host(`searchaudio-safra.s4me.app`) && (Path(`/video`) || Path(`/audio`))
+      priority: 300
+      middlewares:
+        - add-app-trailing-slash
+      service: video-frontend
+
+    video-api:
+      entryPoints:
+        - web
+      rule: Host(`searchaudio-safra.s4me.app`) && PathPrefix(`/video/api`)
+      priority: 200
+      middlewares:
+        - strip-video
+        - security-headers
+      service: video-backend
+
+    audio-api:
+      entryPoints:
+        - web
+      rule: Host(`searchaudio-safra.s4me.app`) && PathPrefix(`/audio/api`)
+      priority: 200
+      middlewares:
+        - strip-audio
+        - security-headers
+      service: audio-backend
+
+    video-frontend:
+      entryPoints:
+        - web
+      rule: Host(`searchaudio-safra.s4me.app`) && PathPrefix(`/video/`)
+      priority: 100
+      middlewares:
+        - strip-video
+        - security-headers
+      service: video-frontend
+
+    audio-frontend:
+      entryPoints:
+        - web
+      rule: Host(`searchaudio-safra.s4me.app`) && PathPrefix(`/audio/`)
+      priority: 100
+      middlewares:
+        - strip-audio
+        - security-headers
+      service: audio-frontend
+
+  middlewares:
+    default-to-video:
+      redirectRegex:
+        regex: ^https?://([^/]+)/?$
+        replacement: https://${1}/video/
+        permanent: false
+
+    add-app-trailing-slash:
+      redirectRegex:
+        regex: ^https?://([^/]+)/(video|audio)$
+        replacement: https://${1}/${2}/
+        permanent: false
+
+    strip-video:
+      stripPrefix:
+        prefixes:
+          - /video
+
+    strip-audio:
+      stripPrefix:
+        prefixes:
+          - /audio
+
+    security-headers:
+      headers:
+        contentTypeNosniff: true
+        referrerPolicy: strict-origin-when-cross-origin
+        contentSecurityPolicy: "frame-ancestors 'self' https://*.pure.cloud"
+
+  services:
+    video-backend:
+      loadBalancer:
+        servers:
+          - url: http://video-backend:3000
+
+    audio-backend:
+      loadBalancer:
+        servers:
+          - url: http://audio-backend:3000
+
+    video-frontend:
+      loadBalancer:
+        servers:
+          - url: http://video-frontend:80
+
+    audio-frontend:
+      loadBalancer:
+        servers:
+          - url: http://audio-frontend:80

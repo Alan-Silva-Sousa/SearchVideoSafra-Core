@@ -12,6 +12,7 @@ export interface AuthCredentials {
 export interface AuthResult {
   success: boolean;
   user?: User;
+  genesysGroupIds?: string[];
   error?: string;
 }
 

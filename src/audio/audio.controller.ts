@@ -7,10 +7,14 @@ import {
   Query,
   Res,
   HttpCode,
+  Req,
+  UseGuards,
+  ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
-import { AudioService } from './audio.service';
-import { Response } from 'express';
-import { S3Service } from '../storage/s3.service';
+import { Request, Response } from 'express';
+import { CanonicalVideoService } from './canonical-video.service';
+import { JwtAuthGuard } from '../user/jwt-auth.guard';
 import {
   ApiTags,
   ApiOperation,
@@ -21,12 +25,25 @@ import {
 
 @ApiTags('Áudio')
 @Controller('audio')
+@UseGuards(JwtAuthGuard)
 export class AudioController {
-  // Access to these routes relies on the external gateway/private network.
-  constructor(
-    private readonly audioService: AudioService,
-    private readonly s3Service: S3Service,
-  ) {}
+  constructor(private readonly audioService: CanonicalVideoService) {}
+
+  private groups(req: Request & { user?: { genesysGroupIds?: string[] } }) {
+    const groups = req.user?.genesysGroupIds || [];
+    if (!groups.length) {
+      throw new ForbiddenException('Usuário sem grupo autorizado');
+    }
+    return groups;
+  }
+
+  private accessContext(req: Request): string {
+    const value = req.header('x-access-group')?.trim().toLowerCase() || '';
+    if (!/^[a-z0-9-]{1,100}$/.test(value)) {
+      throw new ForbiddenException('Contexto de acesso obrigatório');
+    }
+    return value;
+  }
 
   @Get()
   @ApiOperation({
@@ -53,13 +70,19 @@ export class AudioController {
   })
   @ApiResponse({ status: 401, description: 'Não autenticado' })
   findAll(
+    @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
     @Query('filterType') filterType: string | string[] = '',
     @Query('filterValue') filterValue: string | string[] = '',
   ) {
     const types = Array.isArray(filterType) ? filterType : [filterType];
     const values = Array.isArray(filterValue) ? filterValue : [filterValue];
 
-    return this.audioService.findAll(types, values);
+    return this.audioService.findAll(
+      this.groups(req),
+      this.accessContext(req),
+      types,
+      values,
+    );
   }
 
   @Get('download/:id')
@@ -88,21 +111,24 @@ export class AudioController {
   async downloadOne(
     @Param('id') id: string,
     @Query('date') date: string,
+    @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
     @Res() res: Response,
   ) {
-    const audio = await this.audioService.findOne(id, date);
-
-    if (!audio) {
-      return res.status(404).json({ message: 'Vídeo não encontrado' });
-    }
-
-    return this.s3Service.streamFile(
-      audio.S3Directory,
-      audio.S3FileName,
-      audio.DestinationFileName,
-      res,
-      'attachment',
+    const video = await this.audioService.getVideoFile(
+      this.groups(req),
+      this.accessContext(req),
+      id,
     );
+
+    if (!video) {
+      throw new NotFoundException('Vídeo não encontrado');
+    }
+    res.set({
+      'Content-Type': video.contentType,
+      'Content-Disposition': `attachment; filename="${video.fileName}"`,
+      'Content-Length': video.buffer.length,
+    });
+    res.send(video.buffer);
   }
 
   @Get('play/:id')
@@ -131,21 +157,24 @@ export class AudioController {
   async playAudio(
     @Param('id') id: string,
     @Query('date') date: string,
+    @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
     @Res() res: Response,
   ) {
-    const audio = await this.audioService.findOne(id, date);
-
-    if (!audio) {
-      return res.status(404).json({ message: 'Vídeo não encontrado' });
-    }
-
-    return this.s3Service.streamFile(
-      audio.S3Directory,
-      audio.S3FileName,
-      audio.DestinationFileName,
-      res,
-      'inline',
+    const video = await this.audioService.getVideoFile(
+      this.groups(req),
+      this.accessContext(req),
+      id,
     );
+
+    if (!video) {
+      throw new NotFoundException('Vídeo não encontrado');
+    }
+    res.set({
+      'Content-Type': video.contentType,
+      'Content-Disposition': `inline; filename="${video.fileName}"`,
+      'Content-Length': video.buffer.length,
+    });
+    res.send(video.buffer);
   }
 
   @Get(':id')
@@ -165,8 +194,16 @@ export class AudioController {
   })
   @ApiResponse({ status: 200, description: 'Metadados do áudio retornados' })
   @ApiResponse({ status: 401, description: 'Não autenticado' })
-  findOne(@Param('id') id: string, @Query('date') date: string) {
-    return this.audioService.findOne(id, date);
+  findOne(
+    @Param('id') id: string,
+    @Query('date') date: string,
+    @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
+  ) {
+    return this.audioService.findOne(
+      this.groups(req),
+      this.accessContext(req),
+      id,
+    );
   }
 
   @Post('zip')
@@ -185,14 +222,14 @@ export class AudioController {
   async downloadZip(
     @Body('ids') ids: string[],
     @Body('date') date: string,
+    @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
     @Res() res: Response,
   ) {
-    res.set({
-      'Content-Type': 'application/zip',
-      'Content-Disposition': 'attachment; filename=videos.zip',
-    });
-
-    await this.audioService.streamZipFromS3(ids, res);
+    this.groups(req);
+    this.accessContext(req);
+    throw new ForbiddenException(
+      'Download em lote será habilitado após auditoria',
+    );
   }
 
   @Post('csv')
@@ -203,7 +240,15 @@ export class AudioController {
   })
   @ApiResponse({ status: 200, description: 'Lista de metadados retornada' })
   @ApiResponse({ status: 401, description: 'Não autenticado' })
-  async downloadCsv(@Body('ids') ids: string[], @Body('date') date: string) {
-    return await this.audioService.findSome(ids, date);
+  async downloadCsv(
+    @Body('ids') ids: string[],
+    @Body('date') date: string,
+    @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
+  ) {
+    return this.audioService.findSome(
+      this.groups(req),
+      this.accessContext(req),
+      ids,
+    );
   }
 }

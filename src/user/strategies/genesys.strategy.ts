@@ -20,6 +20,10 @@ interface GenesysUserResponse {
   name: string;
   email: string;
   username?: string;
+  groups?: Array<{
+    id?: string;
+    name?: string;
+  }>;
   division?: {
     id: string;
     name: string;
@@ -57,6 +61,9 @@ export class GenesysStrategy implements IAuthStrategy {
 
       // Step 2: Get user info from Genesys
       const genesysUser = await this.getUserInfo(tokens.access_token);
+      const genesysGroupIds = (genesysUser.groups || [])
+        .map((group) => group.id)
+        .filter((id): id is string => Boolean(id));
 
       // Step 3: Find or create user in local database
       const user = await this.userService.findOrCreateExternalUser({
@@ -69,6 +76,7 @@ export class GenesysStrategy implements IAuthStrategy {
       return {
         success: true,
         user,
+        genesysGroupIds,
       };
     } catch (error) {
       this.logAuthenticationError(error);
@@ -147,7 +155,7 @@ export class GenesysStrategy implements IAuthStrategy {
   }
 
   private async getUserInfo(accessToken: string): Promise<GenesysUserResponse> {
-    const apiUrl = `https://api.${this.region}/api/v2/users/me`;
+    const apiUrl = `https://api.${this.region}/api/v2/users/me?expand=groups`;
 
     const response = await axios.get<GenesysUserResponse>(apiUrl, {
       headers: {

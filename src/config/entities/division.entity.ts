@@ -1,16 +1,16 @@
 import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
 
-@Entity('ConfigDivision')
+@Entity({ name: 'config_divisoes', schema: 'searchvideo' })
 export class Division {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'varchar', length: 255 })
+  @Column({ name: 'division_id', type: 'varchar', length: 255, unique: true })
   divisionId: string;
 
-  @Column({ type: 'varchar', length: 255 })
+  @Column({ name: 'nome', type: 'varchar', length: 255 })
   name: string;
 
-  @Column({ type: 'int', nullable: true })
+  @Column({ name: 'retention_days', type: 'int', nullable: true })
   retentionDays: number | null;
 }

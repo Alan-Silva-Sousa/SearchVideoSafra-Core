@@ -3,16 +3,12 @@ import { CreateConfigDto } from './dto/create-config.dto';
 import { UpdateConfigDto } from './dto/update-config.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { Config } from './entities/config.entity';
 import { Division } from './entities/division.entity';
 import { GenesysService } from '../genesys/genesys.service';
 
 @Injectable()
 export class ConfigService {
   constructor(
-    @InjectRepository(Config)
-      private readonly configRepository: Repository<Config>,
-
       @InjectRepository(Division)
       private readonly divisionRepository: Repository<Division>,
       private readonly genesysService: GenesysService,

@@ -13,16 +13,25 @@ export class JwtAuthGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
     const authHeader = request.headers['authorization'];
+    let token: string | undefined;
 
-    if (typeof authHeader !== 'string') {
-      throw new UnauthorizedException('Token não fornecido');
+    if (typeof authHeader === 'string') {
+      const [scheme, headerToken, ...extra] = authHeader.trim().split(/\s+/);
+      if (scheme !== 'Bearer' || !headerToken || extra.length > 0) {
+        throw new UnauthorizedException('Token inválido');
+      }
+      token = headerToken;
+    } else if (typeof request.headers.cookie === 'string') {
+      const cookie = request.headers.cookie
+        .split(';')
+        .map((item: string) => item.trim())
+        .find((item: string) => item.startsWith('searchaudio_token='));
+      token = cookie
+        ? decodeURIComponent(cookie.slice('searchaudio_token='.length))
+        : undefined;
     }
 
-    const [scheme, token, ...extra] = authHeader.trim().split(/\s+/);
-
-    if (scheme !== 'Bearer' || !token || extra.length > 0) {
-      throw new UnauthorizedException('Token inválido');
-    }
+    if (!token) throw new UnauthorizedException('Token não fornecido');
 
     let payload;
 

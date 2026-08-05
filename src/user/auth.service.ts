@@ -67,6 +67,7 @@ export class AuthService {
       email: result.user.email,
       displayName: result.user.displayName,
       authProvider: result.user.authProvider,
+      genesysGroupIds: result.genesysGroupIds || [],
     };
 
     return {

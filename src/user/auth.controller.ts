@@ -61,6 +61,13 @@ export class AuthController {
       }
 
       const result = await this.authService.handleGenesysCallback(code, state);
+      response.cookie('searchaudio_token', result.token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'none',
+        path: '/',
+        maxAge: 24 * 60 * 60 * 1000,
+      });
       const fragment = new URLSearchParams({
         token: result.token,
         email: result.email,
@@ -77,6 +84,12 @@ export class AuthController {
         `${frontUrl}/#/auth/callback?${fragment.toString()}`,
       );
     }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('auth/session')
+  getSession(@Req() request: Request & { user: Record<string, unknown> }) {
+    return { authenticated: true, user: request.user };
   }
 
   @UseGuards(JwtAuthGuard)

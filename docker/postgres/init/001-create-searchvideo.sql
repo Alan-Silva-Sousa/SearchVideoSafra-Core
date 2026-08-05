@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS searchvideo.gravacoes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     sistema_origem VARCHAR(100) NOT NULL,
     id_origem VARCHAR(255) NOT NULL,
+    conversation_id VARCHAR(255),
 
     data_gravacao DATE NOT NULL,
     hora_inicio TIME NOT NULL,
@@ -107,6 +108,18 @@ CREATE INDEX IF NOT EXISTS idx_gravacoes_protocolo
 
 CREATE INDEX IF NOT EXISTS idx_gravacoes_contrato
     ON searchvideo.gravacoes (contrato);
+
+CREATE INDEX IF NOT EXISTS idx_gravacoes_conversation_id
+    ON searchvideo.gravacoes (conversation_id);
+
+CREATE TABLE IF NOT EXISTS searchvideo.config_divisoes (
+    id SERIAL PRIMARY KEY,
+    division_id VARCHAR(255) NOT NULL UNIQUE,
+    nome VARCHAR(255) NOT NULL,
+    retention_days INTEGER CHECK (
+        retention_days IS NULL OR retention_days >= 0
+    )
+);
 
 CREATE INDEX IF NOT EXISTS idx_logs_gravacao_data
     ON searchvideo.log_auditoria (gravacao_id, registrado_em DESC);

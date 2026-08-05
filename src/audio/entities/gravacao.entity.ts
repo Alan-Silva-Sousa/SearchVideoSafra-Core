@@ -5,6 +5,13 @@ export class Gravacao {
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column({ name: 'sistema_origem', length: 100 }) sistemaOrigem: string;
   @Column({ name: 'id_origem', length: 255 }) idOrigem: string;
+  @Column({
+    name: 'conversation_id',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  conversationId: string | null;
   @Column({ name: 'data_gravacao', type: 'date' }) dataGravacao: string;
   @Column({ name: 'hora_inicio', type: 'time' }) horaInicio: string;
   @Column({ name: 'hora_fim', type: 'time', nullable: true }) horaFim:

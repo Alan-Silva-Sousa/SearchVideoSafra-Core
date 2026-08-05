@@ -1,30 +1,297 @@
 services:
-  postgres:
+  gateway:
+    image: traefik:v3.5
+    restart: unless-stopped
+    command:
+      - --entrypoints.web.address=:80
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --providers.file.watch=true
+      - --accesslog=true
+      - --log.level=INFO
+      - --api.dashboard=false
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/traefik-dynamic.yml:/etc/traefik/dynamic.yml:ro
+    depends_on:
+      - video-frontend
+      - video-backend
+      - audio-frontend
+      - audio-backend
+    networks:
+      - web
+
+  video-frontend:
+    build:
+      context: ../SearchVideoSafra
+      dockerfile: Dockerfile
+      args:
+        VITE_BACK_URL: /video
+    restart: unless-stopped
+    expose:
+      - "80"
+    networks:
+      - web
+
+  video-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: video-postgres
+      DB_PORT: 5432
+      FRONT_URL: https://${APP_DOMAIN:-searchaudio-safra.s4me.app}/video
+      GENESYS_OAUTH_REDIRECT_URI: https://${APP_DOMAIN:-searchaudio-safra.s4me.app}/video/api/auth/genesys/callback
+      INGESTION_DB_HOST: ingestion-postgres
+      INGESTION_DB_PORT: 5432
+      INGESTION_DB_NAME: safra_ingestion
+      INGESTION_DB_USER: safra_ingestion
+      INGESTION_DB_PASSWORD: ${DB_PASSWORD}
+      RECORDINGS_KEY_FILE: /run/secrets/recordings.key
+    expose:
+      - "3000"
+    depends_on:
+      video-postgres:
+        condition: service_healthy
+      ingestion-postgres:
+        condition: service_healthy
+        required: false
+    volumes:
+      - ../Ext-Gravacoes-Genesys/recordings.key:/run/secrets/recordings.key:ro
+    networks:
+      - web
+      - video-internal
+      - ingestion-internal
+      - ingestion-egress
+
+  video-postgres:
     image: postgres:16-alpine
-    container_name: searchvideo-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_DATABASE:-searchvideo}
-      POSTGRES_USER: ${DB_USERNAME:-searchvideo}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-searchvideo_dev}
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
       TZ: America/Sao_Paulo
       PGTZ: America/Sao_Paulo
-    ports:
-      - "${DB_PORT:-5432}:5432"
     volumes:
       - searchvideo_postgres_data:/var/lib/postgresql/data
-      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./docker/postgres/init/001-create-searchvideo.sql:/docker-entrypoint-initdb.d/001-create-searchvideo.sql:ro
+      - ./docker/postgres/seeds/001-dev-recordings.sql:/docker-entrypoint-initdb.d/002-dev-recordings.sql:ro
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${DB_USERNAME:-searchvideo} -d ${DB_DATABASE:-searchvideo}",
-        ]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE}"]
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 10s
+    networks:
+      - video-internal
+
+  audio-frontend:
+    build:
+      context: ../SearchAudioSafra
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: /audio/api
+    restart: unless-stopped
+    expose:
+      - "80"
+    networks:
+      - web
+
+  audio-backend:
+    build:
+      context: ../SearchAudioSafra-Core
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../SearchAudioSafra-Core/.env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      AUTH_METHOD: genesys
+      JWT_SECRET: ${JWT_SECRET}
+      GENESYS_REGION: sae1.pure.cloud
+      GENESYS_OAUTH_REDIRECT_URI: https://${APP_DOMAIN:-searchaudio-safra.s4me.app}/audio/api/auth/genesys/callback
+      DB_HOST: audio-postgres
+      DB_PORT: 5432
+      DB_SCHEMA: public
+      FRONT_URL: https://${APP_DOMAIN:-searchaudio-safra.s4me.app}/audio
+      INGESTION_DB_HOST: ingestion-postgres
+      INGESTION_DB_PORT: 5432
+      INGESTION_DB_NAME: safra_ingestion
+      INGESTION_DB_USER: safra_ingestion
+      INGESTION_DB_PASSWORD: ${DB_PASSWORD}
+      RECORDINGS_KEY_FILE: /run/secrets/recordings.key
+    expose:
+      - "3000"
+    depends_on:
+      audio-postgres:
+        condition: service_healthy
+      ingestion-postgres:
+        condition: service_healthy
+        required: false
+    volumes:
+      - ../Ext-Gravacoes-Genesys/recordings.key:/run/secrets/recordings.key:ro
+    networks:
+      - web
+      - audio-internal
+      - ingestion-internal
+      - ingestion-egress
+
+  audio-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      - ../SearchAudioSafra-Core/.env
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        export POSTGRES_DB="$${DB_DATABASE}"
+        export POSTGRES_USER="$${DB_USERNAME}"
+        export POSTGRES_PASSWORD="$${DB_PASSWORD}"
+        exec docker-entrypoint.sh postgres
+    environment:
+      TZ: America/Sao_Paulo
+      PGTZ: America/Sao_Paulo
+    volumes:
+      - searchaudio_postgres_data:/var/lib/postgresql/data
+      - ../SearchAudioSafra-Core/database.sql:/docker-entrypoint-initdb.d/001-database.sql:ro
+      - ../SearchAudioSafra-Core/inserts.sql:/docker-entrypoint-initdb.d/002-inserts.sql:ro
+      - ./docker/postgres/seeds/002-audio-demo-s3.sql:/docker-entrypoint-initdb.d/003-audio-demo-s3.sql:ro
+      - ../SearchAudioSafra-Core/database-auth.sql:/docker-entrypoint-initdb.d/004-database-auth.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$DB_USERNAME\" -d \"$$DB_DATABASE\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - audio-internal
+
+  ingestion-postgres:
+    image: postgres:16-alpine
+    profiles: ["ingestion", "export"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: safra_ingestion
+      POSTGRES_USER: safra_ingestion
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
+      TZ: America/Sao_Paulo
+      PGTZ: America/Sao_Paulo
+    volumes:
+      - safra_ingestion_postgres_data:/var/lib/postgresql/data
+      - ../Ext-Gravacoes-Genesys/init-db.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+      - ../Ext-Gravacoes-Genesys/seeds/001-searchaudio-grupo-a.sql:/docker-entrypoint-initdb.d/002-grupo-a.sql:ro
+      - ../Ext-Gravacoes-Genesys/seeds/002-searchaudio-grupo-b.sql:/docker-entrypoint-initdb.d/003-grupo-b.sql:ro
+      - ../Ext-Gravacoes-Genesys/seeds/003-searchaudio-access-matrix.sql:/docker-entrypoint-initdb.d/004-access-matrix.sql:ro
+      - ../Ext-Gravacoes-Genesys/migrations/004-searchvideo-projection.sql:/docker-entrypoint-initdb.d/005-searchvideo-projection.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U safra_ingestion -d safra_ingestion"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - ingestion-internal
+
+  genesys-metadata:
+    build:
+      context: ../Ext-Gravacoes-Genesys
+      dockerfile: Dockerfile
+    profiles: ["ingestion"]
+    restart: unless-stopped
+    env_file:
+      - ../SearchAudioSafra-Core/.env
+    environment:
+      GENESYS_REGION: sae1.pure.cloud
+      HOME_DIVISION_ID: ${HOME_DIVISION_ID:-}
+      METADATA_ONLY: "true"
+      METADATA_CONCURRENCY: ${METADATA_CONCURRENCY:-5}
+      DB_HOST: ingestion-postgres
+      DB_PORT: 5432
+      DB_NAME: safra_ingestion
+      DB_USER: safra_ingestion
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_SCHEMA: public
+      RECORDINGS_KEY_FILE: /run/secrets/recordings.key
+      OUTPUT_DIR: /state
+      OUTPUT_TZ: America/Sao_Paulo
+      CRON_ENABLED: ${METADATA_CRON_ENABLED:-true}
+      CRON_SCHEDULE: ${METADATA_CRON_SCHEDULE:-0 2 * * *}
+      RUN_ON_STARTUP: ${METADATA_RUN_ON_STARTUP:-false}
+      BACKFILL: ${METADATA_BACKFILL:-false}
+      BACKFILL_START: ${METADATA_BACKFILL_START:-}
+      BACKFILL_END: ${METADATA_BACKFILL_END:-}
+      MAX_WINDOW_DAYS: ${METADATA_MAX_WINDOW_DAYS:-1}
+      JOB_PAUSE_MS: ${METADATA_JOB_PAUSE_MS:-3000}
+    volumes:
+      - ../Ext-Gravacoes-Genesys/recordings.key:/run/secrets/recordings.key:ro
+      - genesys_metadata_state:/state
+    depends_on:
+      ingestion-postgres:
+        condition: service_healthy
+    networks:
+      - ingestion-internal
+      - ingestion-egress
+
+  genesys-s3-export:
+    build:
+      context: ../script-extracao-gravacoes-e-metadados
+      dockerfile: Dockerfile
+    profiles: ["export"]
+    restart: "no"
+    env_file:
+      - ../SearchAudioSafra-Core/.env
+    environment:
+      GENESYS_REGION: sae1.pure.cloud
+      PILOT_MODE: "true"
+      AWS_REGION: us-east-1
+      AWS_S3_BUCKET: safra-search-audio-e-video
+      S3_EXPORT_PREFIX: desenvolvimento/genesys
+      EXPORT_QUEUE_IDS: 727b8ce6-4e2e-4fac-abf3-bac4ae25ab64
+      EXPORT_START: ${EXPORT_PILOT_START:-}
+      EXPORT_END: ${EXPORT_PILOT_END:-}
+      EXPORT_CONVERSATION_ID: ${EXPORT_CONVERSATION_ID:-}
+      DB_HOST: ingestion-postgres
+      DB_PORT: 5432
+      DB_NAME: safra_ingestion
+      DB_USER: safra_ingestion
+      DB_PASSWORD: ${DB_PASSWORD}
+      BATCH_POLL_INTERVAL_MS: ${EXPORT_POLL_INTERVAL_MS:-30000}
+    volumes:
+      - genesys_export_state:/state
+    depends_on:
+      ingestion-postgres:
+        condition: service_healthy
+    networks:
+      - ingestion-internal
+      - ingestion-egress
+
+networks:
+  web:
+  video-internal:
+    internal: true
+  audio-internal:
+    internal: true
+  ingestion-internal:
+    internal: true
+  ingestion-egress:
 
 volumes:
   searchvideo_postgres_data:
     name: searchvideo_postgres_data
+  searchaudio_postgres_data:
+    name: searchaudio_safra
+  safra_ingestion_postgres_data:
+    name: safra_ingestion_postgres_data
+  genesys_metadata_state:
+    name: safra_genesys_metadata_state
+  genesys_export_state:
+    name: safra_genesys_export_state
