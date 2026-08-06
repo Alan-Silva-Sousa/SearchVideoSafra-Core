@@ -11,8 +11,10 @@ import {
   UseGuards,
   ForbiddenException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import * as archiver from 'archiver';
 import { CanonicalVideoService } from './canonical-video.service';
 import { JwtAuthGuard } from '../user/jwt-auth.guard';
 import {
@@ -37,8 +39,10 @@ export class AudioController {
     return groups;
   }
 
-  private accessContext(req: Request): string {
-    const value = req.header('x-access-group')?.trim().toLowerCase() || '';
+  private accessContext(req: Request, queryValue = ''): string {
+    const value =
+      req.header('x-access-group')?.trim().toLowerCase() ||
+      queryValue.trim().toLowerCase();
     if (!/^[a-z0-9-]{1,100}$/.test(value)) {
       throw new ForbiddenException('Contexto de acesso obrigatório');
     }
@@ -111,12 +115,13 @@ export class AudioController {
   async downloadOne(
     @Param('id') id: string,
     @Query('date') date: string,
+    @Query('accessGroup') accessGroup: string = '',
     @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
     @Res() res: Response,
   ) {
     const video = await this.audioService.getVideoFile(
       this.groups(req),
-      this.accessContext(req),
+      this.accessContext(req, accessGroup),
       id,
     );
 
@@ -197,11 +202,12 @@ export class AudioController {
   findOne(
     @Param('id') id: string,
     @Query('date') date: string,
+    @Query('accessGroup') accessGroup: string = '',
     @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
   ) {
     return this.audioService.findOne(
       this.groups(req),
-      this.accessContext(req),
+      this.accessContext(req, accessGroup),
       id,
     );
   }
@@ -225,11 +231,72 @@ export class AudioController {
     @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
     @Res() res: Response,
   ) {
-    this.groups(req);
-    this.accessContext(req);
-    throw new ForbiddenException(
-      'Download em lote será habilitado após auditoria',
+    return this.streamZip(ids, req, res);
+  }
+
+  @Get('zip/download')
+  async downloadZipByGet(
+    @Query('id') id: string | string[] = [],
+    @Query('accessGroup') accessGroup: string = '',
+    @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
+    @Res() res: Response,
+  ) {
+    const ids = Array.isArray(id) ? id : [id];
+    return this.streamZip(ids, req, res, accessGroup);
+  }
+
+  private async streamZip(
+    ids: string[],
+    req: Request & { user?: { genesysGroupIds?: string[] } },
+    res: Response,
+    accessGroup = '',
+  ) {
+    const uniqueIds = [
+      ...new Set(
+        (Array.isArray(ids) ? ids : []).filter(
+          (id): id is string => typeof id === 'string' && id.trim().length > 0,
+        ),
+      ),
+    ];
+    if (!uniqueIds.length) {
+      throw new BadRequestException('Nenhum vídeo foi selecionado');
+    }
+    if (uniqueIds.length > 50) {
+      throw new BadRequestException('Selecione no máximo 50 vídeos por ZIP');
+    }
+
+    const groups = this.groups(req);
+    const accessContext = this.accessContext(req, accessGroup);
+    const authorized = await this.audioService.findSome(
+      groups,
+      accessContext,
+      uniqueIds,
     );
+    if (!authorized.length) {
+      throw new NotFoundException('Nenhum vídeo autorizado foi encontrado');
+    }
+
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition': 'attachment; filename="videos.zip"',
+    });
+    const archive = archiver('zip', { zlib: { level: 6 } });
+    archive.on('error', (error) => res.destroy(error));
+    archive.pipe(res);
+
+    for (const [index, video] of authorized.entries()) {
+      const object = await this.audioService.getVideoStream(
+        groups,
+        accessContext,
+        video.CallIDMaster,
+      );
+      if (!object) continue;
+      archive.append(object.stream, {
+        name: `${String(index + 1).padStart(2, '0')}-${object.fileName}`,
+      });
+    }
+
+    await archive.finalize();
   }
 
   @Post('csv')

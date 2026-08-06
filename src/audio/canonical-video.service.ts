@@ -225,6 +225,36 @@ export class CanonicalVideoService implements OnModuleDestroy {
     };
   }
 
+  async getVideoStream(
+    groupIds: string[],
+    accessContext: string,
+    recordingId: string,
+  ) {
+    const query = this.projection(
+      groupIds,
+      accessContext,
+      'AND p.recording_id = $4 LIMIT 1',
+      [recordingId],
+    );
+    if (!query.text) return null;
+    const result = await this.pool.query<CanonicalVideoRow>(
+      query.text,
+      query.values,
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+
+    const response = await this.s3.send(
+      new GetObjectCommand({ Bucket: row.s3_bucket, Key: row.s3_object_key }),
+    );
+
+    return {
+      stream: response.Body as Readable,
+      fileName:
+        row.s3_object_key.split('/').pop() || `${recordingId}.bin`,
+    };
+  }
+
   private toApi(row: CanonicalVideoRow) {
     return {
       CallIDMaster: row.recording_id,
