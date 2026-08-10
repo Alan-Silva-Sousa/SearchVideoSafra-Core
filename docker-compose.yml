@@ -231,6 +231,8 @@ services:
       BACKFILL_END: ${METADATA_BACKFILL_END:-}
       MAX_WINDOW_DAYS: ${METADATA_MAX_WINDOW_DAYS:-1}
       JOB_PAUSE_MS: ${METADATA_JOB_PAUSE_MS:-3000}
+      CONVERT_AUDIO_TO_MP3: ${CONVERT_AUDIO_TO_MP3:-true}
+      MP3_BITRATE: ${MP3_BITRATE:-128k}
     volumes:
       - ../Ext-Gravacoes-Genesys/recordings.key:/run/secrets/recordings.key:ro
       - genesys_metadata_state:/state
@@ -265,6 +267,8 @@ services:
       DB_USER: safra_ingestion
       DB_PASSWORD: ${DB_PASSWORD}
       BATCH_POLL_INTERVAL_MS: ${EXPORT_POLL_INTERVAL_MS:-30000}
+      CONVERT_AUDIO_TO_MP3: ${CONVERT_AUDIO_TO_MP3:-true}
+      MP3_BITRATE: ${MP3_BITRATE:-128k}
     volumes:
       - genesys_export_state:/state
     depends_on:
