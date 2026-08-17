@@ -17,6 +17,8 @@ import { Request, Response } from 'express';
 import * as archiver from 'archiver';
 import { CanonicalVideoService } from './canonical-video.service';
 import { JwtAuthGuard } from '../user/jwt-auth.guard';
+import { AccessGroupService } from '../access/access-group.service';
+import { Audited } from '../audit/audited.decorator';
 import {
   ApiTags,
   ApiOperation,
@@ -29,7 +31,10 @@ import {
 @Controller('audio')
 @UseGuards(JwtAuthGuard)
 export class AudioController {
-  constructor(private readonly audioService: CanonicalVideoService) {}
+  constructor(
+    private readonly audioService: CanonicalVideoService,
+    private readonly accessGroups: AccessGroupService,
+  ) {}
 
   private groups(req: Request & { user?: { genesysGroupIds?: string[] } }) {
     const groups = req.user?.genesysGroupIds || [];
@@ -49,7 +54,18 @@ export class AudioController {
     return value;
   }
 
+  private async authorize(
+    req: Request & { user?: { genesysGroupIds?: string[] } },
+    queryValue = '',
+  ) {
+    const groups = this.groups(req);
+    const context = this.accessContext(req, queryValue);
+    await this.accessGroups.assertAuthorized(groups, context);
+    return { groups, context };
+  }
+
   @Get()
+  @Audited({ action: 'RECORDING_SEARCH', mediaKind: 'video' })
   @ApiOperation({
     summary: 'Listar áudios com filtros',
     description:
@@ -73,23 +89,37 @@ export class AudioController {
     description: 'Lista de áudios retornada com sucesso',
   })
   @ApiResponse({ status: 401, description: 'Não autenticado' })
-  findAll(
+  async findAll(
     @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
     @Query('filterType') filterType: string | string[] = '',
     @Query('filterValue') filterValue: string | string[] = '',
+    @Query('filterField') filterField: string | string[] = '',
   ) {
+    const { groups, context } = await this.authorize(req);
     const types = Array.isArray(filterType) ? filterType : [filterType];
     const values = Array.isArray(filterValue) ? filterValue : [filterValue];
+    const fields = Array.isArray(filterField) ? filterField : [filterField];
 
-    return this.audioService.findAll(
-      this.groups(req),
-      this.accessContext(req),
-      types,
-      values,
-    );
+    return this.audioService.findAll(groups, context, types, values, fields);
+  }
+
+  @Get('filter-fields')
+  @ApiOperation({
+    summary: 'Listar campos de participant data para filtros',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Nomes de campos disponíveis',
+  })
+  async listFilterFields(
+    @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
+  ) {
+    const { groups, context } = await this.authorize(req);
+    return this.audioService.filterFields(groups, context);
   }
 
   @Get('download/:id')
+  @Audited({ action: 'MEDIA_DOWNLOAD', mediaKind: 'video' })
   @ApiOperation({
     summary: 'Download de áudio',
     description:
@@ -119,9 +149,10 @@ export class AudioController {
     @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
     @Res() res: Response,
   ) {
+    const { groups, context } = await this.authorize(req, accessGroup);
     const video = await this.audioService.getVideoFile(
-      this.groups(req),
-      this.accessContext(req, accessGroup),
+      groups,
+      context,
       id,
     );
 
@@ -137,6 +168,7 @@ export class AudioController {
   }
 
   @Get('play/:id')
+  @Audited({ action: 'VIDEO_PLAY', mediaKind: 'video' })
   @ApiOperation({
     summary: 'Reproduzir áudio (inline)',
     description:
@@ -165,9 +197,10 @@ export class AudioController {
     @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
     @Res() res: Response,
   ) {
+    const { groups, context } = await this.authorize(req);
     const video = await this.audioService.getVideoFile(
-      this.groups(req),
-      this.accessContext(req),
+      groups,
+      context,
       id,
     );
 
@@ -183,6 +216,7 @@ export class AudioController {
   }
 
   @Get(':id')
+  @Audited({ action: 'RECORDING_DETAILS_VIEW', mediaKind: 'video' })
   @ApiOperation({
     summary: 'Buscar áudio específico',
     description: 'Retorna metadados de um áudio específico',
@@ -199,20 +233,18 @@ export class AudioController {
   })
   @ApiResponse({ status: 200, description: 'Metadados do áudio retornados' })
   @ApiResponse({ status: 401, description: 'Não autenticado' })
-  findOne(
+  async findOne(
     @Param('id') id: string,
     @Query('date') date: string,
     @Query('accessGroup') accessGroup: string = '',
     @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
   ) {
-    return this.audioService.findOne(
-      this.groups(req),
-      this.accessContext(req, accessGroup),
-      id,
-    );
+    const { groups, context } = await this.authorize(req, accessGroup);
+    return this.audioService.findOne(groups, context, id);
   }
 
   @Post('zip')
+  @Audited({ action: 'ZIP_DOWNLOAD', mediaKind: 'video' })
   @HttpCode(200)
   @ApiOperation({
     summary: 'Download múltiplos áudios em ZIP',
@@ -235,6 +267,7 @@ export class AudioController {
   }
 
   @Get('zip/download')
+  @Audited({ action: 'ZIP_DOWNLOAD', mediaKind: 'video' })
   async downloadZipByGet(
     @Query('id') id: string | string[] = [],
     @Query('accessGroup') accessGroup: string = '',
@@ -265,8 +298,10 @@ export class AudioController {
       throw new BadRequestException('Selecione no máximo 50 vídeos por ZIP');
     }
 
-    const groups = this.groups(req);
-    const accessContext = this.accessContext(req, accessGroup);
+    const { groups, context: accessContext } = await this.authorize(
+      req,
+      accessGroup,
+    );
     const authorized = await this.audioService.findSome(
       groups,
       accessContext,
@@ -300,6 +335,7 @@ export class AudioController {
   }
 
   @Post('csv')
+  @Audited({ action: 'MEDIA_DOWNLOAD', mediaKind: 'video' })
   @ApiOperation({
     summary: 'Export metadados (CSV)',
     description:
@@ -312,10 +348,7 @@ export class AudioController {
     @Body('date') date: string,
     @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
   ) {
-    return this.audioService.findSome(
-      this.groups(req),
-      this.accessContext(req),
-      ids,
-    );
+    const { groups, context } = await this.authorize(req);
+    return this.audioService.findSome(groups, context, ids);
   }
 }

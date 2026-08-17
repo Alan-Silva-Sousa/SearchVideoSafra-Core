@@ -9,11 +9,18 @@ import {
   ApiBearerAuth,
   ApiQuery,
 } from '@nestjs/swagger';
+import { AccessGroupService } from '../access/access-group.service';
+import { AuditService } from '../audit/audit.service';
+import { AuditRequest } from '../audit/audit.types';
 
 @ApiTags('Autenticação')
 @Controller()
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private accessGroupService: AccessGroupService,
+    private auditService: AuditService,
+  ) {}
 
   @Get('auth/config')
   @ApiOperation({
@@ -48,6 +55,7 @@ export class AuthController {
   async genesysCallback(
     @Query('code') code: string,
     @Query('state') state: string,
+    @Req() request: AuditRequest,
     @Res() response: Response,
   ) {
     const frontUrl = (process.env.FRONT_URL || 'http://localhost:5173').replace(
@@ -61,6 +69,17 @@ export class AuthController {
       }
 
       const result = await this.authService.handleGenesysCallback(code, state);
+      await this.auditService.record(request, {
+        action: 'LOGIN_SUCCESS',
+        result: 'SUCCESS',
+        user: {
+          sub: result.userId,
+          email: result.email,
+          externalId: result.externalId,
+          perfil: result.perfil,
+          genesysGroupIds: result.genesysGroupIds,
+        },
+      });
       response.cookie('searchaudio_token', result.token, {
         httpOnly: true,
         secure: true,
@@ -77,6 +96,11 @@ export class AuthController {
         `${frontUrl}/#/auth/callback?${fragment.toString()}`,
       );
     } catch (error: unknown) {
+      await this.auditService.record(request, {
+        action: 'LOGIN_FAILURE',
+        result: 'FAILURE',
+        details: { reason: 'GENESYS_OAUTH_FAILED' },
+      });
       const message =
         error instanceof Error ? error.message : 'Erro de autenticação';
       const fragment = new URLSearchParams({ error: message });
@@ -88,8 +112,32 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Get('auth/session')
-  getSession(@Req() request: Request & { user: Record<string, unknown> }) {
-    return { authenticated: true, user: request.user };
+  async getSession(
+    @Req()
+    request: Request & {
+      user: { genesysGroupIds?: string[] } & Record<string, unknown>;
+    },
+  ) {
+    const accessGroups = await this.accessGroupService.findAuthorizedGroups(
+      request.user?.genesysGroupIds || [],
+    );
+    return { authenticated: true, user: request.user, accessGroups };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('auth/access-groups')
+  @ApiOperation({
+    summary: 'Grupos de acesso autorizados',
+    description:
+      'Retorna os access_groups do usuário logado via PKCE (IDs de grupo Genesys mapeados no banco canônico)',
+  })
+  async getAccessGroups(
+    @Req() request: Request & { user?: { genesysGroupIds?: string[] } },
+  ) {
+    const accessGroups = await this.accessGroupService.findAuthorizedGroups(
+      request.user?.genesysGroupIds || [],
+    );
+    return { accessGroups };
   }
 
   @UseGuards(JwtAuthGuard)

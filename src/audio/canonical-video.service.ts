@@ -73,6 +73,10 @@ export class CanonicalVideoService implements OnModuleDestroy {
       return { text: '', values: [] as unknown[] };
     }
 
+    // Isolamento POR GRAVAÇÃO (todos os filtros: CPF, skill, telefone, etc.):
+    // - membro do access group do contexto
+    // - gravação com fila desse access group
+    // - gravação sem fila exclusiva de outro access group
     return {
       text: `
         SELECT p.*,
@@ -81,12 +85,33 @@ export class CanonicalVideoService implements OnModuleDestroy {
         FROM searchvideo_recordings p
         WHERE EXISTS (
           SELECT 1
-          FROM conversation_queues cq
-          JOIN access_group_queues agq ON agq.queue_id = cq.queue_id
-          JOIN access_groups ag ON ag.id = agq.access_group_id AND ag.active
-          WHERE cq.conversation_id = p.conversation_id
-            AND ag.genesys_group_id = ANY($1::varchar[])
+          FROM access_groups ag
+          JOIN conversation_queues cq ON cq.conversation_id = p.conversation_id
+          JOIN access_group_queues agq
+            ON agq.queue_id = cq.queue_id
+           AND agq.access_group_id = ag.id
+          WHERE ag.active
             AND ag.slug = $2
+            AND ag.genesys_group_id = ANY($1::varchar[])
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM conversation_queues cq
+          JOIN access_group_queues foreign_agq ON foreign_agq.queue_id = cq.queue_id
+          JOIN access_groups foreign_ag
+            ON foreign_ag.id = foreign_agq.access_group_id
+           AND foreign_ag.active
+           AND foreign_ag.slug <> $2
+          WHERE cq.conversation_id = p.conversation_id
+            AND NOT EXISTS (
+              SELECT 1
+              FROM access_group_queues context_agq
+              JOIN access_groups context_ag
+                ON context_ag.id = context_agq.access_group_id
+               AND context_ag.active
+               AND context_ag.slug = $2
+              WHERE context_agq.queue_id = cq.queue_id
+            )
         ) ${extraWhere}`,
       values: [groupIds, accessContext, this.encryptionKey, ...values],
     };
@@ -97,6 +122,7 @@ export class CanonicalVideoService implements OnModuleDestroy {
     accessContext: string,
     filterTypes: string[],
     filterValues: string[],
+    filterFields: string[] = [],
   ) {
     const clauses: string[] = [];
     const values: unknown[] = [];
@@ -118,7 +144,16 @@ export class CanonicalVideoService implements OnModuleDestroy {
         clauses.push(`COALESCE(NULLIF(BTRIM(p.participant_attributes->>'Telefone Destino'), ''), decrypt_value(p.dnis_normalized, $3)) ILIKE ${parameter}`);
         values.push(`%${value}%`);
       } else if (type === 'Document') {
-        clauses.push(`COALESCE(p.cpf, p.cnpj, '') ILIKE ${parameter}`);
+        clauses.push(`COALESCE(
+          NULLIF(BTRIM(p.cpf), ''),
+          NULLIF(BTRIM(p.cnpj), ''),
+          NULLIF(BTRIM(p.participant_attributes->>'Doc Cliente'), ''),
+          NULLIF(BTRIM(p.participant_attributes->>'doc_cliente'), ''),
+          NULLIF(BTRIM(p.participant_attributes->>'CPF'), ''),
+          NULLIF(BTRIM(p.participant_attributes->>'cnpj'), ''),
+          NULLIF(BTRIM(p.participant_attributes->>'CNPJ'), ''),
+          ''
+        ) ILIKE ${parameter}`);
         values.push(`%${value}%`);
       } else if (type === 'QueueSkill') {
         clauses.push(`COALESCE(NULLIF(BTRIM(p.participant_attributes->>'skill'), ''), NULLIF(BTRIM(p.participant_attributes->>'transfer_filas'), '')) ILIKE ${parameter}`);
@@ -132,6 +167,20 @@ export class CanonicalVideoService implements OnModuleDestroy {
       } else if (type === 'Format') {
         clauses.push(`(COALESCE(p.content_type, '') ILIKE ${parameter} OR p.s3_object_key ILIKE ${parameter})`);
         values.push(`%${value}%`);
+      } else if (type === 'FileSize') {
+        const bytes = Number(value);
+        if (Number.isFinite(bytes) && bytes >= 0) {
+          const tolerance = Math.max(1, bytes * 0.001);
+          clauses.push(`COALESCE(p.file_size, 0)::numeric BETWEEN ${parameter}::numeric AND $${values.length + 5}::numeric`);
+          values.push(bytes - tolerance, bytes + tolerance);
+        }
+      } else if (type === 'ParticipantData') {
+        const field = filterFields[index]?.trim();
+        if (!field) return;
+        values.push(field);
+        const valueParameter = `$${values.length + 4}`;
+        values.push(`%${value}%`);
+        clauses.push(`COALESCE(p.participant_attributes ->> ${parameter}, '') ILIKE ${valueParameter}`);
       }
     });
 
@@ -148,6 +197,35 @@ export class CanonicalVideoService implements OnModuleDestroy {
       query.values,
     );
     return result.rows.map((row) => this.toApi(row));
+  }
+
+  async filterFields(groupIds: string[], accessContext: string) {
+    // Catálogo de filtros compartilhado: não depende de gravações do grupo atual.
+    // Grupos sem filas/gravações (ex.: retenção, caça-pos) ficam com o mesmo menu de A/B.
+    // Isolamento de acesso continua só na busca/play/download (projection).
+    if (!groupIds.length || !accessContext) return [];
+    const allowed = await this.pool.query(
+      `SELECT 1
+       FROM access_groups ag
+       WHERE ag.active
+         AND ag.slug = $2
+         AND ag.genesys_group_id = ANY($1::varchar[])
+       LIMIT 1`,
+      [groupIds, accessContext],
+    );
+    if (!allowed.rows.length) return [];
+
+    const result = await this.pool.query<{ field: string }>(
+      `SELECT DISTINCT fields.field
+       FROM searchvideo_recordings p
+       CROSS JOIN LATERAL jsonb_object_keys(
+         COALESCE(p.participant_attributes, '{}'::jsonb)
+       ) fields(field)
+       WHERE p.participant_attributes IS NOT NULL
+         AND p.participant_attributes <> '{}'::jsonb
+       ORDER BY fields.field`,
+    );
+    return result.rows.map(({ field }) => field);
   }
 
   async findOne(

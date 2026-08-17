@@ -8,11 +8,10 @@ import { AudioModule } from './audio/audio.module';
 import { AuthModule } from './user/auth.module';
 import { User } from './user/entities/user.entity';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { LogsModule } from './logs/logs.module';
-import { Log } from './logs/entities/log.entity';
 import { ConfigModule as Configdev } from './config/config.module';
 import { GenesysModule } from './genesys/genesys.module';
 import { Division } from './config/entities/division.entity';
+import { AuditModule } from './audit/audit.module';
 
 @Module({
   imports: [
@@ -25,7 +24,7 @@ import { Division } from './config/entities/division.entity';
       username: process.env.DB_USERNAME,
       password: process.env.DB_PASSWORD,
       schema: process.env.DB_SCHEMA || 'searchvideo',
-      entities: [User, Log, Division, Gravacao],
+      entities: [User, Division, Gravacao],
       synchronize: false,
       logging: process.env.NODE_ENV === 'development',
       ssl:
@@ -48,9 +47,9 @@ import { Division } from './config/entities/division.entity';
         limit: 10,
       },
     ]),
-    LogsModule,
     Configdev,
     GenesysModule,
+    AuditModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -8,6 +8,7 @@ import { User } from './entities/user.entity';
 import { UserService } from './user.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { GenesysStrategy } from './strategies';
+import { AccessModule } from '../access/access.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { GenesysStrategy } from './strategies';
         };
       },
     }),
+    AccessModule,
   ],
   providers: [AuthService, UserService, JwtAuthGuard, GenesysStrategy],
   controllers: [AuthController],

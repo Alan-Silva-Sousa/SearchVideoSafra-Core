@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AudioController } from './audio.controller';
-import { AudioService } from './audio.service';
-import { S3Service } from '../storage/s3.service';
+import { CanonicalVideoService } from './canonical-video.service';
+import { AccessGroupService } from '../access/access-group.service';
 import { JwtAuthGuard } from '../user/jwt-auth.guard';
 
 describe('AudioController', () => {
@@ -11,8 +11,8 @@ describe('AudioController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AudioController],
       providers: [
-        { provide: AudioService, useValue: {} },
-        { provide: S3Service, useValue: {} },
+        { provide: CanonicalVideoService, useValue: {} },
+        { provide: AccessGroupService, useValue: {} },
       ],
     })
       .overrideGuard(JwtAuthGuard)

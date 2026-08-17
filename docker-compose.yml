@@ -47,6 +47,7 @@ services:
       DB_PORT: 5432
       FRONT_URL: https://${APP_DOMAIN:-searchaudio-safra.s4me.app}/video
       GENESYS_OAUTH_REDIRECT_URI: https://${APP_DOMAIN:-searchaudio-safra.s4me.app}/video/api/auth/genesys/callback
+      AUDIT_READER_GENESYS_GROUP_IDS: ${AUDIT_READER_GENESYS_GROUP_IDS:-}
       INGESTION_DB_HOST: ingestion-postgres
       INGESTION_DB_PORT: 5432
       INGESTION_DB_NAME: safra_ingestion
@@ -117,6 +118,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       GENESYS_REGION: sae1.pure.cloud
       GENESYS_OAUTH_REDIRECT_URI: https://${APP_DOMAIN:-searchaudio-safra.s4me.app}/audio/api/auth/genesys/callback
+      AUDIT_READER_GENESYS_GROUP_IDS: ${AUDIT_READER_GENESYS_GROUP_IDS:-}
       DB_HOST: audio-postgres
       DB_PORT: 5432
       DB_SCHEMA: public
@@ -176,7 +178,6 @@ services:
 
   ingestion-postgres:
     image: postgres:16-alpine
-    profiles: ["ingestion", "export"]
     restart: unless-stopped
     environment:
       POSTGRES_DB: safra_ingestion
@@ -192,6 +193,7 @@ services:
       - ../Ext-Gravacoes-Genesys/seeds/002-searchaudio-grupo-b.sql:/docker-entrypoint-initdb.d/003-grupo-b.sql:ro
       - ../Ext-Gravacoes-Genesys/seeds/003-searchaudio-access-matrix.sql:/docker-entrypoint-initdb.d/004-access-matrix.sql:ro
       - ../Ext-Gravacoes-Genesys/migrations/004-searchvideo-projection.sql:/docker-entrypoint-initdb.d/005-searchvideo-projection.sql:ro
+      - ./docker/postgres/migrations/006-nice-audit.sql:/docker-entrypoint-initdb.d/006-nice-audit.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U safra_ingestion -d safra_ingestion"]
       interval: 5s
@@ -205,7 +207,6 @@ services:
     build:
       context: ../Ext-Gravacoes-Genesys
       dockerfile: Dockerfile
-    profiles: ["ingestion"]
     restart: unless-stopped
     env_file:
       - ../SearchAudioSafra-Core/.env
@@ -231,6 +232,8 @@ services:
       BACKFILL_END: ${METADATA_BACKFILL_END:-}
       MAX_WINDOW_DAYS: ${METADATA_MAX_WINDOW_DAYS:-1}
       JOB_PAUSE_MS: ${METADATA_JOB_PAUSE_MS:-3000}
+      CONVERT_AUDIO_TO_MP3: ${CONVERT_AUDIO_TO_MP3:-true}
+      MP3_BITRATE: ${MP3_BITRATE:-128k}
     volumes:
       - ../Ext-Gravacoes-Genesys/recordings.key:/run/secrets/recordings.key:ro
       - genesys_metadata_state:/state
@@ -245,17 +248,16 @@ services:
     build:
       context: ../script-extracao-gravacoes-e-metadados
       dockerfile: Dockerfile
-    profiles: ["export"]
-    restart: "no"
+    restart: unless-stopped
     env_file:
       - ../SearchAudioSafra-Core/.env
     environment:
       GENESYS_REGION: sae1.pure.cloud
-      PILOT_MODE: "true"
+      PILOT_MODE: ${EXPORT_PILOT_MODE:-false}
       AWS_REGION: us-east-1
       AWS_S3_BUCKET: safra-search-audio-e-video
       S3_EXPORT_PREFIX: desenvolvimento/genesys
-      EXPORT_QUEUE_IDS: 727b8ce6-4e2e-4fac-abf3-bac4ae25ab64
+      EXPORT_QUEUE_IDS: ${EXPORT_QUEUE_IDS:-}
       EXPORT_START: ${EXPORT_PILOT_START:-}
       EXPORT_END: ${EXPORT_PILOT_END:-}
       EXPORT_CONVERSATION_ID: ${EXPORT_CONVERSATION_ID:-}
@@ -265,11 +267,20 @@ services:
       DB_USER: safra_ingestion
       DB_PASSWORD: ${DB_PASSWORD}
       BATCH_POLL_INTERVAL_MS: ${EXPORT_POLL_INTERVAL_MS:-30000}
+      CONVERT_AUDIO_TO_MP3: ${CONVERT_AUDIO_TO_MP3:-true}
+      MP3_BITRATE: ${MP3_BITRATE:-128k}
+      EXPORT_CRON_HOUR: ${EXPORT_CRON_HOUR:-4}
+      EXPORT_CRON_MINUTE: ${EXPORT_CRON_MINUTE:-0}
+      EXPORT_WINDOW_HOURS: ${EXPORT_WINDOW_HOURS:-24}
+      EXPORT_LAG_HOURS: ${EXPORT_LAG_HOURS:-2}
+      TZ: America/Sao_Paulo
     volumes:
       - genesys_export_state:/state
     depends_on:
       ingestion-postgres:
         condition: service_healthy
+      genesys-metadata:
+        condition: service_started
     networks:
       - ingestion-internal
       - ingestion-egress
