@@ -94,12 +94,8 @@ export class CanonicalVideoService implements OnModuleDestroy {
            AND agq.access_group_id = ag.id
           WHERE ag.active
             AND ag.slug = $2
-<<<<<<< HEAD
             AND agg.genesys_group_id = ANY($1::varchar[])
             AND agg.media_kind = 'video'
-=======
-            AND agg.genesys_group_id = ANY($1::varchar[])
->>>>>>> 324c46c (fix: ampliar filtros canonicos e normalizar periodo da auditoria)
         )
         AND NOT EXISTS (
           SELECT 1
