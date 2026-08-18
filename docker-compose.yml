@@ -197,6 +197,7 @@ services:
       - ../Ext-Gravacoes-Genesys/migrations/004-searchvideo-projection.sql:/docker-entrypoint-initdb.d/005-searchvideo-projection.sql:ro
       - ./docker/postgres/migrations/006-nice-audit.sql:/docker-entrypoint-initdb.d/006-nice-audit.sql:ro
       - ./docker/postgres/migrations/007-genesys-group-permissions.sql:/docker-entrypoint-initdb.d/007-genesys-group-permissions.sql:ro
+      - ./docker/postgres/migrations/008-media-scoped-access-groups.sql:/docker-entrypoint-initdb.d/008-media-scoped-access-groups.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U safra_ingestion -d safra_ingestion"]
       interval: 5s
