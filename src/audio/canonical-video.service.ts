@@ -3,6 +3,7 @@ import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Pool } from 'pg';
 import { Readable } from 'stream';
 import * as fs from 'fs';
+import { buildCanonicalRecordingClauses } from './canonical-recording-filters';
 
 interface CanonicalVideoRow {
   recording_id: string;
@@ -93,8 +94,12 @@ export class CanonicalVideoService implements OnModuleDestroy {
            AND agq.access_group_id = ag.id
           WHERE ag.active
             AND ag.slug = $2
+<<<<<<< HEAD
             AND agg.genesys_group_id = ANY($1::varchar[])
             AND agg.media_kind = 'video'
+=======
+            AND agg.genesys_group_id = ANY($1::varchar[])
+>>>>>>> 324c46c (fix: ampliar filtros canonicos e normalizar periodo da auditoria)
         )
         AND NOT EXISTS (
           SELECT 1
@@ -126,66 +131,7 @@ export class CanonicalVideoService implements OnModuleDestroy {
     filterValues: string[],
     filterFields: string[] = [],
   ) {
-    const clauses: string[] = [];
-    const values: unknown[] = [];
-    filterTypes.forEach((type, index) => {
-      const value = filterValues[index];
-      if (!type || !value) return;
-      const parameter = `$${values.length + 4}`;
-
-      if (type === 'RecordStart' || type === 'RecordStartStart') {
-        clauses.push(`p.conversation_start_time::date >= ${parameter}::date`);
-        values.push(value);
-      } else if (type === 'RecordStartEnd') {
-        clauses.push(`p.conversation_start_time::date <= ${parameter}::date`);
-        values.push(value);
-      } else if (type === 'CustomerPhone') {
-        clauses.push(`COALESCE(NULLIF(BTRIM(p.participant_attributes->>'Telefone Cliente'), ''), NULLIF(BTRIM(p.participant_attributes->>'telefone'), ''), decrypt_value(p.ani_normalized, $3)) ILIKE ${parameter}`);
-        values.push(`%${value}%`);
-      } else if (type === 'DestinationPhone') {
-        clauses.push(`COALESCE(NULLIF(BTRIM(p.participant_attributes->>'Telefone Destino'), ''), decrypt_value(p.dnis_normalized, $3)) ILIKE ${parameter}`);
-        values.push(`%${value}%`);
-      } else if (type === 'Document') {
-        clauses.push(`COALESCE(
-          NULLIF(BTRIM(p.cpf), ''),
-          NULLIF(BTRIM(p.cnpj), ''),
-          NULLIF(BTRIM(p.participant_attributes->>'Doc Cliente'), ''),
-          NULLIF(BTRIM(p.participant_attributes->>'doc_cliente'), ''),
-          NULLIF(BTRIM(p.participant_attributes->>'CPF'), ''),
-          NULLIF(BTRIM(p.participant_attributes->>'cnpj'), ''),
-          NULLIF(BTRIM(p.participant_attributes->>'CNPJ'), ''),
-          ''
-        ) ILIKE ${parameter}`);
-        values.push(`%${value}%`);
-      } else if (type === 'QueueSkill') {
-        clauses.push(`COALESCE(NULLIF(BTRIM(p.participant_attributes->>'skill'), ''), NULLIF(BTRIM(p.participant_attributes->>'transfer_filas'), '')) ILIKE ${parameter}`);
-        values.push(`%${value}%`);
-      } else if (type === 'Environment') {
-        clauses.push(`COALESCE(p.participant_attributes->>'Ambiente', '') ILIKE ${parameter}`);
-        values.push(`%${value}%`);
-      } else if (type === 'Duration') {
-        clauses.push(`CASE WHEN ${parameter} ~ '^\\d+$' THEN ROUND(COALESCE(p.duration_ms, 0)::numeric / 1000) = ${parameter}::numeric ELSE false END`);
-        values.push(value);
-      } else if (type === 'Format') {
-        clauses.push(`(COALESCE(p.content_type, '') ILIKE ${parameter} OR p.s3_object_key ILIKE ${parameter})`);
-        values.push(`%${value}%`);
-      } else if (type === 'FileSize') {
-        const bytes = Number(value);
-        if (Number.isFinite(bytes) && bytes >= 0) {
-          const tolerance = Math.max(1, bytes * 0.001);
-          clauses.push(`COALESCE(p.file_size, 0)::numeric BETWEEN ${parameter}::numeric AND $${values.length + 5}::numeric`);
-          values.push(bytes - tolerance, bytes + tolerance);
-        }
-      } else if (type === 'ParticipantData') {
-        const field = filterFields[index]?.trim();
-        if (!field) return;
-        values.push(field);
-        const valueParameter = `$${values.length + 4}`;
-        values.push(`%${value}%`);
-        clauses.push(`COALESCE(p.participant_attributes ->> ${parameter}, '') ILIKE ${valueParameter}`);
-      }
-    });
-
+    const { clauses, values } = buildCanonicalRecordingClauses(filterTypes, filterValues, filterFields);
     const where = clauses.length ? `AND ${clauses.join(' AND ')}` : '';
     const query = this.projection(
       groupIds,
