@@ -18,6 +18,7 @@ import * as archiver from 'archiver';
 import { CanonicalVideoService } from './canonical-video.service';
 import { JwtAuthGuard } from '../user/jwt-auth.guard';
 import { AccessGroupService } from '../access/access-group.service';
+import { ActionPermissionService } from '../access/action-permission.service';
 import { Audited } from '../audit/audited.decorator';
 import {
   ApiTags,
@@ -34,6 +35,7 @@ export class AudioController {
   constructor(
     private readonly audioService: CanonicalVideoService,
     private readonly accessGroups: AccessGroupService,
+    private readonly permissions: ActionPermissionService,
   ) {}
 
   private groups(req: Request & { user?: { genesysGroupIds?: string[] } }) {
@@ -149,6 +151,7 @@ export class AudioController {
     @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
     @Res() res: Response,
   ) {
+    this.permissions.assertCanDownload(this.groups(req));
     const { groups, context } = await this.authorize(req, accessGroup);
     const video = await this.audioService.getVideoFile(
       groups,
@@ -263,6 +266,7 @@ export class AudioController {
     @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
     @Res() res: Response,
   ) {
+    this.permissions.assertCanDownload(this.groups(req));
     return this.streamZip(ids, req, res);
   }
 
@@ -274,6 +278,7 @@ export class AudioController {
     @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
     @Res() res: Response,
   ) {
+    this.permissions.assertCanDownload(this.groups(req));
     const ids = Array.isArray(id) ? id : [id];
     return this.streamZip(ids, req, res, accessGroup);
   }
@@ -348,6 +353,7 @@ export class AudioController {
     @Body('date') date: string,
     @Req() req: Request & { user?: { genesysGroupIds?: string[] } },
   ) {
+    this.permissions.assertCanDownload(this.groups(req));
     const { groups, context } = await this.authorize(req);
     return this.audioService.findSome(groups, context, ids);
   }

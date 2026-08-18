@@ -10,6 +10,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { AccessGroupService } from '../access/access-group.service';
+import { ActionPermissionService } from '../access/action-permission.service';
 import { AuditService } from '../audit/audit.service';
 import { AuditRequest } from '../audit/audit.types';
 
@@ -19,6 +20,7 @@ export class AuthController {
   constructor(
     private authService: AuthService,
     private accessGroupService: AccessGroupService,
+    private actionPermissions: ActionPermissionService,
     private auditService: AuditService,
   ) {}
 
@@ -121,7 +123,16 @@ export class AuthController {
     const accessGroups = await this.accessGroupService.findAuthorizedGroups(
       request.user?.genesysGroupIds || [],
     );
-    return { authenticated: true, user: request.user, accessGroups };
+    const genesysGroupIds = request.user?.genesysGroupIds || [];
+    return {
+      authenticated: true,
+      user: request.user,
+      accessGroups,
+      permissions: {
+        canDownload: this.actionPermissions.canDownload(genesysGroupIds),
+        canReadAudit: this.actionPermissions.canReadAudit(genesysGroupIds),
+      },
+    };
   }
 
   @UseGuards(JwtAuthGuard)

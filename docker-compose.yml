@@ -48,6 +48,7 @@ services:
       FRONT_URL: https://${APP_DOMAIN:-searchaudio-safra.s4me.app}/video
       GENESYS_OAUTH_REDIRECT_URI: https://${APP_DOMAIN:-searchaudio-safra.s4me.app}/video/api/auth/genesys/callback
       AUDIT_READER_GENESYS_GROUP_IDS: ${AUDIT_READER_GENESYS_GROUP_IDS:-}
+      DOWNLOAD_GENESYS_GROUP_IDS: ${DOWNLOAD_GENESYS_GROUP_IDS:-}
       INGESTION_DB_HOST: ingestion-postgres
       INGESTION_DB_PORT: 5432
       INGESTION_DB_NAME: safra_ingestion
@@ -119,6 +120,7 @@ services:
       GENESYS_REGION: sae1.pure.cloud
       GENESYS_OAUTH_REDIRECT_URI: https://${APP_DOMAIN:-searchaudio-safra.s4me.app}/audio/api/auth/genesys/callback
       AUDIT_READER_GENESYS_GROUP_IDS: ${AUDIT_READER_GENESYS_GROUP_IDS:-}
+      DOWNLOAD_GENESYS_GROUP_IDS: ${DOWNLOAD_GENESYS_GROUP_IDS:-}
       DB_HOST: audio-postgres
       DB_PORT: 5432
       DB_SCHEMA: public
@@ -194,6 +196,7 @@ services:
       - ../Ext-Gravacoes-Genesys/seeds/003-searchaudio-access-matrix.sql:/docker-entrypoint-initdb.d/004-access-matrix.sql:ro
       - ../Ext-Gravacoes-Genesys/migrations/004-searchvideo-projection.sql:/docker-entrypoint-initdb.d/005-searchvideo-projection.sql:ro
       - ./docker/postgres/migrations/006-nice-audit.sql:/docker-entrypoint-initdb.d/006-nice-audit.sql:ro
+      - ./docker/postgres/migrations/007-genesys-group-permissions.sql:/docker-entrypoint-initdb.d/007-genesys-group-permissions.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U safra_ingestion -d safra_ingestion"]
       interval: 5s
